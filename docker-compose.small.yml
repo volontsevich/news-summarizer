@@ -1,0 +1,129 @@
+# Optimized configuration for small servers (512MB RAM)
+# Use with: docker-compose -f docker-compose.yml -f docker-compose.small.yml up -d
+
+version: '3.8'
+
+services:
+  api:
+    restart: always
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=WARNING  # Reduce logging to save memory
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        limits:
+          memory: 150M
+          cpus: '0.5'
+        reservations:
+          memory: 100M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 60s  # Longer intervals to reduce load
+      timeout: 15s
+      retries: 2
+      start_period: 60s
+
+  db:
+    restart: always
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - POSTGRES_DB=${POSTGRES_DB:-tgnews}
+    volumes:
+      - postgres_data_small:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 150M
+          cpus: '0.3'
+        reservations:
+          memory: 100M
+    command: >
+      postgres
+      -c shared_buffers=32MB
+      -c effective_cache_size=96MB
+      -c maintenance_work_mem=16MB
+      -c work_mem=2MB
+      -c max_connections=20
+      -c log_statement=none
+      -c log_min_duration_statement=-1
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 60s
+      timeout: 15s
+      retries: 2
+
+  redis:
+    restart: always
+    volumes:
+      - redis_data_small:/data
+    deploy:
+      resources:
+        limits:
+          memory: 50M
+          cpus: '0.2'
+        reservations:
+          memory: 32M
+    command: >
+      redis-server
+      --maxmemory 32mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+      --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 60s
+      timeout: 15s
+      retries: 2
+
+  worker:
+    restart: always
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=WARNING
+      - CELERY_WORKER_CONCURRENCY=1  # Single worker process
+      - CELERY_WORKER_PREFETCH_MULTIPLIER=1
+    deploy:
+      resources:
+        limits:
+          memory: 100M
+          cpus: '0.3'
+        reservations:
+          memory: 64M
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.tasks.celery_app inspect ping"]
+      interval: 120s  # Less frequent checks
+      timeout: 30s
+      retries: 2
+      start_period: 90s
+
+  scheduler:
+    restart: always
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=WARNING
+    deploy:
+      resources:
+        limits:
+          memory: 50M
+          cpus: '0.2'
+        reservations:
+          memory: 32M
+    healthcheck:
+      test: ["CMD-SHELL", "ps aux | grep celery-beat || exit 1"]
+      interval: 120s
+      timeout: 30s
+      retries: 2
+      start_period: 90s
+
+volumes:
+  postgres_data_small:
+    driver: local
+  redis_data_small:
+    driver: local
+
+networks:
+  default:
+    name: tg-news-summarizer-small

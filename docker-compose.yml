@@ -1,0 +1,51 @@
+# NOTE FOR COPILOT:
+# - Do not hard-code secrets. Read from app.core.config.Settings.
+# ...existing code...
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+  scheduler:
+    build:
+      context: .
+      dockerfile: docker/scheduler.Dockerfile
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  redis:
+    image: redis:7
+    restart: always
+    volumes:
+      - redisdata:/data
+volumes:
+  pgdata:
+  redisdata:

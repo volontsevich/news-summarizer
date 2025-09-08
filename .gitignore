@@ -1,0 +1,16 @@
+# NOTE FOR COPILOT:
+# - Do not hard-code secrets. Read from app.core.config.Settings.
+# ...existing code...
+
+__pycache__/
+*.pyc
+.env
+.env.*
+pgdata/
+redisdata/
+*.sqlite3
+*.db
+.idea/
+.vscode/
+*.log
+alembic/versions/*.pyc

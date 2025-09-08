@@ -1,0 +1,322 @@
+"""Email functionality for sending alerts and notifications."""
+
+import smtplib
+import ssl
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from typing import List, Optional
+import logging
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+
+class EmailService:
+    """Service for sending emails with alerts and notifications."""
+    
+    def __init__(self):
+        self.settings = get_settings()
+    
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10)
+    )
+    def send_alert_email(
+        self,
+        recipients: List[str],
+        subject: str,
+        alert_content: str,
+        matched_rules: List[str],
+        post_url: Optional[str] = None
+    ) -> bool:
+        """Send an alert email to recipients."""
+        try:
+            # Create message
+            message = MIMEMultipart("alternative")
+            message["Subject"] = subject
+            message["From"] = self.settings.SMTP_FROM_EMAIL
+            message["To"] = ", ".join(recipients)
+            
+            # Create both text and HTML versions
+            text_content = self._create_text_content(alert_content, matched_rules, post_url)
+            html_content = self._create_html_content(alert_content, matched_rules, post_url)
+            
+            # Add parts to message
+            text_part = MIMEText(text_content, "plain")
+            html_part = MIMEText(html_content, "html")
+            
+            message.attach(text_part)
+            message.attach(html_part)
+            
+            # Send email
+            server = self._get_smtp_connection()
+            try:
+                server.sendmail(
+                    self.settings.SMTP_FROM_EMAIL,
+                    recipients,
+                    message.as_string()
+                )
+            finally:
+                server.quit()
+            
+            logger.info(f"Alert email sent successfully to {len(recipients)} recipients")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to send alert email: {e}")
+            raise
+    
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10)
+    )
+    def send_digest_email(
+        self,
+        recipients: List[str],
+        subject: str,
+        digest_content: str,
+        timeframe: str,
+        post_count: int
+    ) -> bool:
+        """Send a digest email to recipients."""
+        try:
+            # Create message
+            message = MIMEMultipart("alternative")
+            message["Subject"] = subject
+            message["From"] = self.settings.SMTP_FROM_EMAIL
+            message["To"] = ", ".join(recipients)
+            
+            # Create both text and HTML versions
+            text_content = self._create_digest_text(digest_content, timeframe, post_count)
+            html_content = self._create_digest_html(digest_content, timeframe, post_count)
+            
+            # Add parts to message
+            text_part = MIMEText(text_content, "plain")
+            html_part = MIMEText(html_content, "html")
+            
+            message.attach(text_part)
+            message.attach(html_part)
+            
+            # Send email
+            server = self._get_smtp_connection()
+            try:
+                server.sendmail(
+                    self.settings.SMTP_FROM_EMAIL,
+                    recipients,
+                    message.as_string()
+                )
+            finally:
+                server.quit()
+            
+            logger.info(f"Digest email sent successfully to {len(recipients)} recipients")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to send digest email: {e}")
+            raise
+    
+    def _get_smtp_connection(self):
+        """Create and configure SMTP connection."""
+        context = ssl.create_default_context()
+        
+        if self.settings.SMTP_TLS:
+            server = smtplib.SMTP(self.settings.SMTP_HOST, self.settings.SMTP_PORT)
+            server.starttls(context=context)
+        else:
+            server = smtplib.SMTP_SSL(self.settings.SMTP_HOST, self.settings.SMTP_PORT, context=context)
+        
+        server.login(self.settings.SMTP_USERNAME, self.settings.SMTP_PASSWORD)
+        return server
+    
+    def _create_text_content(
+        self,
+        alert_content: str,
+        matched_rules: List[str],
+        post_url: Optional[str] = None
+    ) -> str:
+        """Create plain text email content for alerts."""
+        content = f"""
+🚨 NEWS ALERT
+
+{alert_content}
+
+Matched Rules:
+{chr(10).join(f"• {rule}" for rule in matched_rules)}
+"""
+        
+        if post_url:
+            content += f"\n🔗 View post: {post_url}"
+        
+        content += f"""
+
+---
+This alert was generated by TG News Summarizer
+To manage your alert preferences, visit your dashboard.
+"""
+        return content.strip()
+    
+    def _create_html_content(
+        self,
+        alert_content: str,
+        matched_rules: List[str],
+        post_url: Optional[str] = None
+    ) -> str:
+        """Create HTML email content for alerts."""
+        rules_html = "".join(f"<li>{rule}</li>" for rule in matched_rules)
+        
+        html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>News Alert</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+        .header {{ background-color: #f8f9fa; padding: 20px; border-left: 4px solid #dc3545; }}
+        .content {{ padding: 20px; }}
+        .rules {{ background-color: #f8f9fa; padding: 15px; border-radius: 5px; }}
+        .footer {{ background-color: #f8f9fa; padding: 15px; font-size: 12px; color: #666; }}
+        .alert-icon {{ font-size: 24px; color: #dc3545; }}
+        .btn {{ background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <span class="alert-icon">🚨</span> <strong>NEWS ALERT</strong>
+    </div>
+    
+    <div class="content">
+        <p>{alert_content.replace(chr(10), '<br>')}</p>
+        
+        <div class="rules">
+            <strong>Matched Rules:</strong>
+            <ul>{rules_html}</ul>
+        </div>
+"""
+        
+        if post_url:
+            html += f"""
+        <p style="margin-top: 20px;">
+            <a href="{post_url}" class="btn">View Full Post</a>
+        </p>
+"""
+        
+        html += """
+    </div>
+    
+    <div class="footer">
+        This alert was generated by TG News Summarizer<br>
+        To manage your alert preferences, visit your dashboard.
+    </div>
+</body>
+</html>
+"""
+        return html
+    
+    def _create_digest_text(self, digest_content: str, timeframe: str, post_count: int) -> str:
+        """Create plain text email content for digests."""
+        content = f"""
+📰 NEWS DIGEST - {timeframe.upper()}
+
+Summary of {post_count} posts:
+
+{digest_content}
+
+---
+This digest was generated by TG News Summarizer
+"""
+        return content.strip()
+    
+    def _create_digest_html(self, digest_content: str, timeframe: str, post_count: int) -> str:
+        """Create HTML email content for digests."""
+        html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>News Digest</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+        .header {{ background-color: #f8f9fa; padding: 20px; border-left: 4px solid #28a745; }}
+        .content {{ padding: 20px; }}
+        .footer {{ background-color: #f8f9fa; padding: 15px; font-size: 12px; color: #666; }}
+        .digest-icon {{ font-size: 24px; color: #28a745; }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <span class="digest-icon">📰</span> <strong>NEWS DIGEST - {timeframe.upper()}</strong>
+    </div>
+    
+    <div class="content">
+        <p><strong>Summary of {post_count} posts:</strong></p>
+        <div>{digest_content.replace(chr(10), '<br><br>')}</div>
+    </div>
+    
+    <div class="footer">
+        This digest was generated by TG News Summarizer
+    </div>
+</body>
+</html>
+"""
+        return html
+
+
+# Global email service instance
+_email_service: Optional[EmailService] = None
+
+
+def get_email_service() -> EmailService:
+    """Get the global email service instance."""
+    global _email_service
+    if _email_service is None:
+        _email_service = EmailService()
+    return _email_service
+
+
+async def send_alert_notification(
+    alert_content: str,
+    matched_rules: List[str],
+    recipients: List[str],
+    post_url: Optional[str] = None
+) -> bool:
+    """Send alert notification via email."""
+    if not recipients:
+        logger.warning("No recipients specified for alert notification")
+        return False
+    
+    subject = f"🚨 News Alert: {matched_rules[0] if matched_rules else 'Content Match'}"
+    
+    email_service = get_email_service()
+    return email_service.send_alert_email(
+        recipients=recipients,
+        subject=subject,
+        alert_content=alert_content,
+        matched_rules=matched_rules,
+        post_url=post_url
+    )
+
+
+async def send_digest_notification(
+    digest_content: str,
+    timeframe: str,
+    post_count: int,
+    recipients: List[str]
+) -> bool:
+    """Send digest notification via email."""
+    if not recipients:
+        logger.warning("No recipients specified for digest notification")
+        return False
+    
+    subject = f"📰 News Digest ({timeframe}) - {post_count} posts"
+    
+    email_service = get_email_service()
+    return email_service.send_digest_email(
+        recipients=recipients,
+        subject=subject,
+        digest_content=digest_content,
+        timeframe=timeframe,
+        post_count=post_count
+    )

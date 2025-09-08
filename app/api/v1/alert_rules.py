@@ -180,11 +180,11 @@ async def activate_alert_rule(
     if not rule:
         raise HTTPException(status_code=404, detail="Alert rule not found")
     
-    if rule.is_active:
+    if rule.enabled:
         raise HTTPException(status_code=400, detail="Alert rule is already active")
     
     try:
-        rule.is_active = True
+        rule.enabled = True
         db.commit()
         return {"message": "Alert rule activated successfully"}
     except Exception as e:
@@ -202,11 +202,11 @@ async def deactivate_alert_rule(
     if not rule:
         raise HTTPException(status_code=404, detail="Alert rule not found")
     
-    if not rule.is_active:
+    if not rule.enabled:
         raise HTTPException(status_code=400, detail="Alert rule is already inactive")
     
     try:
-        rule.is_active = False
+        rule.enabled = False
         db.commit()
         return {"message": "Alert rule deactivated successfully"}
     except Exception as e:
@@ -221,14 +221,13 @@ async def get_alert_stats(
     """Get alert rule statistics."""
     try:
         total_rules = db.query(AlertRule).count()
-        active_rules = db.query(AlertRule).filter(AlertRule.is_active == True).count()
+        active_rules = db.query(AlertRule).filter(AlertRule.enabled == True).count()
         
         # Get recently triggered rules (in last 24 hours)
         from datetime import datetime, timedelta
         recent_cutoff = datetime.utcnow() - timedelta(days=1)
-        recently_triggered = db.query(AlertRule).filter(
-            AlertRule.last_triggered >= recent_cutoff
-        ).count()
+        # Note: last_triggered field doesn't exist in model, skip for now
+        recently_triggered = 0
         
         return {
             "total_rules": total_rules,

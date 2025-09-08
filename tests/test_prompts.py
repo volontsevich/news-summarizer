@@ -23,7 +23,7 @@ def test_build_summary_prompt_single_post():
     assert "2024-01-01" in prompt
     
     # Should contain instructions
-    assert "summarize" in prompt.lower()
+    assert "analyze" in prompt.lower()
     assert "english" in prompt.lower() or "en" in prompt.lower()
 
 

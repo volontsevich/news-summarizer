@@ -45,10 +45,13 @@ async def generate_digest(
         from datetime import datetime, timedelta
         from app.db.models import Post
         
+        # Calculate timeframe
+        timeframe_end = datetime.utcnow()
+        timeframe_start = timeframe_end - timedelta(hours=hours)
+        
         # Get recent posts
-        since = datetime.utcnow() - timedelta(hours=hours)
         recent_posts = db.query(Post).filter(
-            Post.created_at >= since
+            Post.created_at >= timeframe_start
         ).order_by(Post.created_at.desc()).limit(max_posts).all()
         
         if not recent_posts:
@@ -57,19 +60,24 @@ async def generate_digest(
         # Create digest summary
         summary_parts = []
         for post in recent_posts:
-            if post.summary:
-                summary_parts.append(f"• {post.summary}")
+            if post.processed and hasattr(post.processed, 'summary_md'):
+                summary_parts.append(f"• {post.processed.summary_md}")
             else:
-                text_preview = post.text[:100] + "..." if len(post.text) > 100 else post.text
+                text_preview = post.raw_text[:100] + "..." if len(post.raw_text) > 100 else post.raw_text
                 summary_parts.append(f"• {text_preview}")
         
         digest_summary = "\n".join(summary_parts)
         
+        # Determine most common language
+        languages = [post.language for post in recent_posts if post.language]
+        most_common_language = max(set(languages), key=languages.count) if languages else "en"
+        
         # Create digest
         digest = Digest(
-            title=title,
-            summary=digest_summary,
-            post_count=len(recent_posts)
+            timeframe_start=timeframe_start,
+            timeframe_end=timeframe_end,
+            language=most_common_language,
+            summary_md=digest_summary
         )
         
         db.add(digest)
@@ -78,8 +86,10 @@ async def generate_digest(
         
         return {
             "id": str(digest.id),
-            "title": digest.title,
-            "summary": digest.summary,
+            "timeframe_start": digest.timeframe_start.isoformat(),
+            "timeframe_end": digest.timeframe_end.isoformat(),
+            "language": digest.language,
+            "summary": digest.summary_md,
             "post_count": len(recent_posts),
             "created_at": digest.created_at.isoformat(),
             "message": "Digest generated successfully!"
@@ -101,12 +111,11 @@ async def get_digest(
     
     return {
         "id": str(digest.id),
-        "title": digest.title,
-        "summary": digest.summary,
-        "post_count": digest.post_count,
-        "created_at": digest.created_at.isoformat(),
-        "sent_at": digest.sent_at.isoformat() if digest.sent_at else None,
-        "status": "sent" if digest.sent_at else "pending"
+        "timeframe_start": digest.timeframe_start.isoformat(),
+        "timeframe_end": digest.timeframe_end.isoformat(),
+        "language": digest.language,
+        "summary": digest.summary_md,
+        "created_at": digest.created_at.isoformat()
     }
 
 

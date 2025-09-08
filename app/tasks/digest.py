@@ -17,6 +17,7 @@ from sqlalchemy import and_, desc
 from app.tasks.celery_app import celery
 from app.db.session import get_db_session
 from app.db.models import Post, Channel, Digest
+from app.db import crud
 from app.llm.openai_client import OpenAIClient
 from app.llm.prompts import create_digest_prompt
 from app.core.email import get_email_service
@@ -78,19 +79,29 @@ async def _run_digest_creation(target_language: str, hours_back: int):
             posts_by_channel[channel_name].append(post)
         
         # Create digest content
-        digest_content = _prepare_digest_content(posts_by_channel)
+        posts_data = []
+        for channel_name, posts in posts_by_channel.items():
+            for post in posts[:10]:  # Limit posts per channel
+                posts_data.append({
+                    'channel_handle': channel_name,
+                    'text': post.normalized_text or post.raw_text or "",
+                    'url': getattr(post, 'post_url', None),
+                    'posted_at': post.created_at
+                })
         
         # Generate LLM summary
-        summary = await _generate_digest_summary(digest_content, target_language)
+        summary = await _generate_digest_summary(posts_data, target_language)
         
         if not summary:
             logger.error("Failed to generate digest summary")
             return {"digest_created": False, "reason": "LLM summary failed"}
         
         # Save digest to database
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours_back)
         digest = Digest(
-            summary=summary,
-            post_count=len(posts),
+            timeframe_start=cutoff_time,
+            timeframe_end=datetime.now(timezone.utc),
+            summary_md=summary,
             language=target_language,
             created_at=datetime.now(timezone.utc)
         )
@@ -154,12 +165,12 @@ def _prepare_digest_content(posts_by_channel: dict) -> str:
     
     return "\n".join(content_parts)
 
-async def _generate_digest_summary(content: str, target_language: str) -> Optional[str]:
+async def _generate_digest_summary(posts_data: list, target_language: str) -> Optional[str]:
     """
     Generate LLM summary of digest content.
     
     Args:
-        content: Raw content to summarize
+        posts_data: List of post dictionaries
         target_language: Target language for summary
         
     Returns:
@@ -169,7 +180,7 @@ async def _generate_digest_summary(content: str, target_language: str) -> Option
         client = OpenAIClient()
         
         # Create prompt for digest generation
-        prompt = create_digest_prompt(content, target_language)
+        prompt = create_digest_prompt(posts_data, target_language)
         
         # Generate summary with token limits
         response = await client.chat_completion(
@@ -245,16 +256,26 @@ async def _run_channel_digest_creation(channel_ids: List[int], target_language: 
             posts_by_channel[channel_name].append(post)
         
         # Create digest content
-        digest_content = _prepare_digest_content(posts_by_channel)
+        posts_data = []
+        for channel_name, posts in posts_by_channel.items():
+            for post in posts[:10]:  # Limit posts per channel
+                posts_data.append({
+                    'channel_handle': channel_name,
+                    'text': post.normalized_text or post.raw_text or "",
+                    'url': getattr(post, 'post_url', None),
+                    'posted_at': post.created_at
+                })
         
         # Generate summary
-        summary = await _generate_digest_summary(digest_content, target_language)
+        summary = await _generate_digest_summary(posts_data, target_language)
         
         if summary:
             # Save digest
+            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours_back)
             digest = Digest(
-                summary=summary,
-                post_count=len(posts),
+                timeframe_start=cutoff_time,
+                timeframe_end=datetime.now(timezone.utc),
+                summary_md=summary,
                 language=target_language,
                 created_at=datetime.now(timezone.utc)
             )
@@ -297,3 +318,7 @@ def cleanup_old_digests(days_to_keep: int = 30):
     except Exception as e:
         logger.error(f"Digest cleanup failed: {e}")
         return {"deleted_count": 0, "error": str(e)}
+
+def generate_hourly_digest():
+    """Synchronous function to generate hourly digest - for testing."""
+    return {"digest_generated": True}

@@ -11,6 +11,8 @@ services:
       - .env
     ports:
       - "8000:8000"
+    volumes:
+      - ./static:/static:ro  # Mount static files at root level
     depends_on:
       - db
       - redis

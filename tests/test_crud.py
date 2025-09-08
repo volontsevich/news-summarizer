@@ -98,8 +98,11 @@ def test_get_new_posts_for_channel(test_db, sample_channel, sample_post):
 def test_list_enabled_channels(test_db):
     """Test listing enabled channels."""
     # Create enabled and disabled channels
+    import uuid
+    enabled_username = f"enabled_{uuid.uuid4().hex[:8]}"
+    disabled_username = f"disabled_{uuid.uuid4().hex[:8]}"
     enabled_channel = Channel(
-        username="enabled",
+        username=enabled_username,
         name="Enabled Channel",
         is_active=True,
         created_at=datetime.now(timezone.utc),
@@ -107,7 +110,7 @@ def test_list_enabled_channels(test_db):
     )
     
     disabled_channel = Channel(
-        username="disabled", 
+        username=disabled_username, 
         name="Disabled Channel",
         is_active=False,
         created_at=datetime.now(timezone.utc),
@@ -121,8 +124,8 @@ def test_list_enabled_channels(test_db):
     
     # Should only return enabled channels
     usernames = [ch.username for ch in enabled_channels]
-    assert "enabled" in usernames
-    assert "disabled" not in usernames
+    assert enabled_username in usernames
+    assert disabled_username not in usernames
 
 
 def test_mark_channel_last_message_id(test_db, sample_channel):

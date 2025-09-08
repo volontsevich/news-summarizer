@@ -3,6 +3,7 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from app.db.session import get_db
 from app.db import crud as filter_crud
@@ -22,7 +23,7 @@ async def list_filters(
     query = db.query(FilterRule)
     
     if is_active is not None:
-        query = query.filter(FilterRule.is_active == is_active)
+        query = query.filter(FilterRule.enabled == is_active)
     
     filters = query.offset(skip).limit(limit).all()
     
@@ -31,10 +32,11 @@ async def list_filters(
             "id": str(f.id),
             "name": f.name,
             "pattern": f.pattern,
-            "filter_type": f.filter_type,
-            "is_active": f.is_active,
-            "created_at": f.created_at.isoformat(),
-            "match_count": getattr(f, 'match_count', 0)
+            "is_regex": f.is_regex,
+            "is_blocklist": f.is_blocklist,
+            "enabled": f.enabled,
+            "language": f.language,
+            "created_at": f.created_at.isoformat()
         }
         for f in filters
     ]
@@ -95,11 +97,11 @@ async def get_filter(
         "id": str(filter_rule.id),
         "name": filter_rule.name,
         "pattern": filter_rule.pattern,
-        "filter_type": filter_rule.filter_type,
-        "is_active": filter_rule.is_active,
-        "created_at": filter_rule.created_at.isoformat(),
-        "updated_at": filter_rule.updated_at.isoformat(),
-        "match_count": getattr(filter_rule, 'match_count', 0)
+        "is_regex": filter_rule.is_regex,
+        "is_blocklist": filter_rule.is_blocklist,
+        "enabled": filter_rule.enabled,
+        "language": filter_rule.language,
+        "created_at": filter_rule.created_at.isoformat()
     }
 
 
@@ -165,21 +167,24 @@ async def get_filter_stats(
     """Get filter statistics."""
     try:
         total_filters = db.query(FilterRule).count()
-        active_filters = db.query(FilterRule).filter(FilterRule.is_active == True).count()
+        active_filters = db.query(FilterRule).filter(FilterRule.enabled == True).count()
         
-        # Get filter type distribution
-        type_stats = db.query(
-            FilterRule.filter_type,
-            db.func.count(FilterRule.id).label('count')
-        ).group_by(FilterRule.filter_type).all()
+        # Get filter type distribution by is_regex
+        regex_filters = db.query(FilterRule).filter(FilterRule.is_regex == True).count()
+        keyword_filters = total_filters - regex_filters
+        
+        # Get blocklist vs allowlist
+        blocklist_filters = db.query(FilterRule).filter(FilterRule.is_blocklist == True).count()
+        allowlist_filters = total_filters - blocklist_filters
         
         return {
             "total_filters": total_filters,
             "active_filters": active_filters,
             "inactive_filters": total_filters - active_filters,
-            "filter_type_distribution": {
-                filter_type: count for filter_type, count in type_stats
-            },
+            "regex_filters": regex_filters,
+            "keyword_filters": keyword_filters,
+            "blocklist_filters": blocklist_filters,
+            "allowlist_filters": allowlist_filters,
             "activation_rate": (active_filters / total_filters * 100) if total_filters > 0 else 0
         }
     except Exception as e:

@@ -35,6 +35,19 @@ def upsert_channel_by_handle(db: Session, handle: str, title: str) -> Channel:
 	db.commit()
 	return result.scalar_one()
 
+def create_channel(db: Session, username: str, name: str, description: str = None) -> Channel:
+	"""Create a new channel."""
+	channel = Channel(
+		username=username,
+		name=name,
+		description=description,
+		is_active=True
+	)
+	db.add(channel)
+	db.commit()
+	db.refresh(channel)
+	return channel
+
 def save_posts_batch_with_dedupe(db: Session, posts: List[dict]) -> List[Post]:
 	"""Bulk insert posts, deduplicating on (channel_id, message_id). Returns inserted posts."""
 	if not posts:

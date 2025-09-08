@@ -13,11 +13,11 @@ import logging
 from datetime import datetime, timezone
 from typing import List, Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy import and_, func
 from app.tasks.celery_app import celery
 from app.db.session import get_db_session
 from app.db.models import Channel, Post, FilterRule, Processed
-from app.ingestion.telegram_client import TelegramClientFactory
+from app.ingestion.telegram_client import TelegramClientFactory, fetch_new_posts
 from app.ingestion.normalizer import normalize_text
 from app.ingestion.language import detect_language_safe
 from app.tasks.alerting import check_post_for_alerts
@@ -100,18 +100,17 @@ async def _ingest_channel_posts(db: Session, channel: Channel) -> int:
     Returns:
         Number of new posts ingested
     """
-    client_factory = TelegramClientFactory()
     
     try:
-        # Get the last processed message ID for this channel
-        last_processed = db.query(Processed).filter(
-            Processed.channel_id == channel.id
-        ).first()
+        # Get the last processed message ID for this channel by finding max message_id
+        max_message_result = db.query(func.max(Post.message_id)).filter(
+            Post.channel_id == channel.id
+        ).scalar()
         
-        last_message_id = last_processed.last_message_id if last_processed else 0
+        last_message_id = max_message_result if max_message_result else 0
         
         # Fetch new posts from Telegram
-        posts_data = await client_factory.fetch_new_posts(
+        posts_data = await fetch_new_posts(
             channel.username,
             last_message_id=last_message_id,
             limit=100
@@ -169,19 +168,8 @@ async def _ingest_channel_posts(db: Session, channel: Channel) -> int:
                 logger.error(f"Failed to process post {post_data.get('message_id')}: {e}")
                 continue
         
-        # Update processed tracking
-        if latest_message_id > last_message_id:
-            if last_processed:
-                last_processed.last_message_id = latest_message_id
-                last_processed.updated_at = datetime.now(timezone.utc)
-            else:
-                processed = Processed(
-                    channel_id=channel.id,
-                    last_message_id=latest_message_id,
-                    created_at=datetime.now(timezone.utc),
-                    updated_at=datetime.now(timezone.utc)
-                )
-                db.add(processed)
+        # Log processing completion
+        logger.info(f"Processed {new_posts_count} new posts from {channel.name}")
         
         return new_posts_count
         
@@ -233,3 +221,7 @@ def ingest_single_channel(self, channel_id: int):
         channel_id: ID of the channel to ingest
     """
     return ingest_telegram_posts.delay(channel_id=channel_id)
+
+def ingest_new_posts():
+    """Synchronous function to ingest new posts - for testing."""
+    return ingest_telegram_posts.apply().result

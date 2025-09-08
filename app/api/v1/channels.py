@@ -115,10 +115,10 @@ async def get_channel_posts(
             {
                 "id": str(post.id),
                 "message_id": post.message_id,
-                "text": post.text[:500] + "..." if len(post.text) > 500 else post.text,
+                "text": post.raw_text[:500] + "..." if len(post.raw_text) > 500 else post.raw_text,
                 "language": post.language,
                 "created_at": post.created_at.isoformat(),
-                "has_summary": bool(post.summary)
+                "has_summary": bool(post.processed)
             }
             for post in posts
         ]

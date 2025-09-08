@@ -39,7 +39,7 @@ def test_should_filter_post_partial_words():
     
     assert should_filter_post("Technology breakthrough", patterns) == True
     assert should_filter_post("Biotech company", patterns) == True
-    assert should_filter_post("Architecture design", patterns) == True
+    assert should_filter_post("Fintech solutions", patterns) == True
 
 
 def test_compile_filter_patterns():

@@ -4,6 +4,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from app.db.session import get_db
 from app.db import crud as post_crud
@@ -40,11 +41,11 @@ async def list_posts(
         {
             "id": str(post.id),
             "message_id": post.message_id,
-            "text": post.text[:200] + "..." if len(post.text) > 200 else post.text,
+            "text": post.raw_text[:200] + "..." if len(post.raw_text) > 200 else post.raw_text,
             "language": post.language,
             "channel_id": str(post.channel_id),
             "created_at": post.created_at.isoformat(),
-            "has_summary": bool(post.summary)
+            "has_summary": bool(post.processed and hasattr(post.processed, 'summary_md'))
         }
         for post in posts
     ]
@@ -63,10 +64,10 @@ async def get_post(
     return {
         "id": str(post.id),
         "message_id": post.message_id,
-        "text": post.text,
+        "text": post.raw_text,
         "language": post.language,
         "channel_id": str(post.channel_id),
-        "summary": post.summary,
+        "summary": getattr(post.processed, 'summary_md', None) if post.processed else None,
         "created_at": post.created_at.isoformat(),
         "updated_at": post.updated_at.isoformat()
     }
@@ -82,14 +83,14 @@ async def search_posts(
     """Search posts by text content."""
     try:
         posts = db.query(Post).filter(
-            Post.text.contains(q)
+            Post.raw_text.contains(q)
         ).offset(skip).limit(limit).all()
         
         return [
             {
                 "id": str(post.id),
                 "message_id": post.message_id,
-                "text": post.text[:300] + "..." if len(post.text) > 300 else post.text,
+                "text": post.raw_text[:300] + "..." if len(post.raw_text) > 300 else post.raw_text,
                 "language": post.language,
                 "channel_id": str(post.channel_id),
                 "created_at": post.created_at.isoformat(),
@@ -112,11 +113,11 @@ async def get_posts_stats(
         # Get language distribution
         language_stats = db.query(
             Post.language, 
-            db.func.count(Post.id).label('count')
+            func.count(Post.id).label('count')
         ).group_by(Post.language).all()
         
-        # Get posts with summaries
-        posts_with_summaries = db.query(Post).filter(Post.summary.isnot(None)).count()
+        # Get posts with summaries (through processed relationship)
+        posts_with_summaries = db.query(Post).join(Post.processed).count()
         
         return {
             "total_posts": total_posts,

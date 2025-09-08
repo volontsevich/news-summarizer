@@ -26,10 +26,11 @@ def get_summary_prompt(posts: List[Dict[str, Any]], target_lang: str = "en") -> 
     # Format posts for the prompt
     formatted_posts = []
     for i, post in enumerate(posts, 1):
-        channel = post.get('channel_handle', 'unknown')
+        # Support both 'channel_handle' and 'channel' for compatibility
+        channel = post.get('channel_handle') or post.get('channel', 'unknown')
         text = post.get('text', '')
         url = post.get('url', '')
-        timestamp = post.get('posted_at', '')
+        timestamp = post.get('posted_at') or post.get('date', '')
         
         post_entry = f"Post {i}:\n"
         post_entry += f"Channel: {channel}\n"
@@ -198,6 +199,19 @@ Return JSON with your assessment:
 {{"is_news_worthy": true/false, "content_quality": "high/medium/low", "reason": "brief explanation"}}
 
 Assessment:"""
+
+def create_digest_prompt(posts: List[Dict[str, Any]], target_lang: str = "en") -> str:
+    """
+    Create a digest prompt (alias for get_summary_prompt for compatibility).
+    
+    Args:
+        posts: List of posts with keys: channel_handle, text, url, posted_at
+        target_lang: Target language for the summary
+        
+    Returns:
+        Formatted prompt for digest creation
+    """
+    return get_summary_prompt(posts, target_lang)
 
 # Aliases for test compatibility (must be after function definitions)
 build_summary_prompt = get_summary_prompt

@@ -11,8 +11,8 @@
 
 import logging
 import smtplib
-from email.mime.text import MimeText
-from email.mime.multipart import MimeMultipart
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from typing import List, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential
 from app.core.config import get_settings
@@ -55,18 +55,18 @@ class EmailSender:
         
         try:
             # Create message
-            msg = MimeMultipart('alternative')
+            msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
             msg['From'] = self.settings.SMTP_FROM_EMAIL
             msg['To'] = ', '.join(to_emails)
             
             # Add plain text part
-            text_part = MimeText(body, 'plain', 'utf-8')
+            text_part = MIMEText(body, 'plain', 'utf-8')
             msg.attach(text_part)
             
             # Add HTML part if provided
             if html_body:
-                html_part = MimeText(html_body, 'html', 'utf-8')
+                html_part = MIMEText(html_body, 'html', 'utf-8')
                 msg.attach(html_part)
             
             # Connect to SMTP server

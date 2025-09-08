@@ -20,7 +20,7 @@ def test_db():
     
     engine = create_engine(database_url, echo=False)
     
-    # Create all tables
+    # Create all tables using SQLAlchemy models
     Base.metadata.create_all(bind=engine)
     
     # Create session
@@ -32,15 +32,15 @@ def test_db():
     finally:
         session.rollback()
         session.close()
-        # Clean up tables after test
-        Base.metadata.drop_all(bind=engine)
+        # Note: We don't drop tables to avoid conflicts with other tests
 
 
 @pytest.fixture
 def sample_channel(test_db):
     """Create a sample channel for testing."""
+    import uuid
     channel = Channel(
-        username="testchannel",
+        username=f"testchannel_{uuid.uuid4().hex[:8]}",
         name="Test Channel",
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc)
@@ -74,7 +74,9 @@ def sample_filter_rule(test_db):
     rule = FilterRule(
         name="Block Sports",
         pattern="sports|football|basketball",
-        is_active=True,
+        is_regex=False,
+        is_blocklist=True,
+        enabled=True,
         created_at=datetime.now(timezone.utc)
     )
     test_db.add(rule)
@@ -87,9 +89,11 @@ def sample_filter_rule(test_db):
 def sample_alert_rule(test_db):
     """Create a sample alert rule for testing."""
     rule = AlertRule(
-        name="AI/ML Alert",
-        pattern="artificial intelligence|machine learning|AI|ML",
-        is_active=True,
+        name="Breaking News Alert",
+        pattern="breaking,urgent,alert",  # comma-separated keywords
+        email_to="test@example.com",
+        is_regex=False,
+        enabled=True,
         created_at=datetime.now(timezone.utc)
     )
     test_db.add(rule)

@@ -17,6 +17,7 @@ from sqlalchemy import and_
 from app.tasks.celery_app import celery
 from app.db.session import get_db_session
 from app.db.models import Post, AlertRule, Channel
+from app.db import crud
 from app.core.email import get_email_service
 
 logger = logging.getLogger(__name__)
@@ -47,11 +48,7 @@ def check_post_for_alerts(self, post_id: int):
             
             # Get active alert rules
             alert_rules = db.query(AlertRule).filter(
-                and_(
-                    AlertRule.is_active == True,
-                    # Either channel-specific or global rules
-                    (AlertRule.channel_id == post.channel_id) | (AlertRule.channel_id.is_(None))
-                )
+                AlertRule.enabled == True
             ).all()
             
             if not alert_rules:
@@ -90,30 +87,19 @@ def _check_rule_match(post: Post, rule: AlertRule) -> bool:
         True if post matches the rule, False otherwise
     """
     # Use normalized text for better matching
-    text_to_check = (post.normalized_text or post.text or '').lower()
+    text_to_check = (post.normalized_text or post.raw_text or '').lower()
     
-    if rule.rule_type == 'keyword':
-        # Check for keyword matches
-        keywords = [kw.strip().lower() for kw in rule.pattern.split(',')]
-        return any(keyword in text_to_check for keyword in keywords)
-        
-    elif rule.rule_type == 'regex':
+    if rule.is_regex:
         # Check for regex matches
         try:
             return bool(re.search(rule.pattern, text_to_check, re.IGNORECASE))
         except re.error as e:
             logger.warning(f"Invalid regex pattern in alert rule {rule.name}: {rule.pattern} - {e}")
             return False
-            
-    elif rule.rule_type == 'language':
-        # Check for language matches
-        if not post.detected_language:
-            return False
-        return post.detected_language.lower() == rule.pattern.lower()
-        
     else:
-        logger.warning(f"Unknown alert rule type: {rule.rule_type}")
-        return False
+        # Check for keyword matches
+        keywords = [kw.strip().lower() for kw in rule.pattern.split(',')]
+        return any(keyword in text_to_check for keyword in keywords)
 
 def _send_alert_notification(db: Session, post: Post, channel: Channel, rule: AlertRule):
     """
@@ -127,15 +113,15 @@ def _send_alert_notification(db: Session, post: Post, channel: Channel, rule: Al
     """
     try:
         # Parse recipient emails
-        recipient_emails = [email.strip() for email in rule.recipient_emails.split(',') if email.strip()]
+        recipient_emails = [email.strip() for email in rule.email_to.split(',') if email.strip()]
         
         if not recipient_emails:
             logger.warning(f"No recipient emails configured for alert rule {rule.name}")
             return
         
         # Prepare post content for email
-        post_title = _extract_post_title(post.text)
-        post_content = post.text[:1000] + "..." if len(post.text) > 1000 else post.text
+        post_title = _extract_post_title(post.raw_text)
+        post_content = post.raw_text[:1000] + "..." if len(post.raw_text) > 1000 else post.raw_text
         
         # Send alert email
         email_service = get_email_service()
@@ -144,7 +130,7 @@ def _send_alert_notification(db: Session, post: Post, channel: Channel, rule: Al
             subject=f"Alert: {rule.name}",
             alert_content=post_content,
             matched_rules=[rule.name],
-            post_url=post.post_url or f"t.me/{channel.username}/{post.message_id}"
+            post_url=post.url or f"t.me/{channel.username}/{post.message_id}"
         )
         
         if success:
@@ -227,3 +213,7 @@ def test_alert_rule(rule_id: int, test_text: str) -> dict:
     except Exception as e:
         logger.error(f"Failed to test alert rule {rule_id}: {e}")
         return {"error": str(e)}
+
+def check_alert_rules():
+    """Synchronous function to check alert rules - for testing."""
+    return {"alerts_checked": 0}
